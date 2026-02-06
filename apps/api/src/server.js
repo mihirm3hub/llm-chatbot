@@ -95,6 +95,63 @@ const chatSchema = z.object({
 	message: z.string().min(1).max(4000),
 });
 
+async function callAiChat({ userId, sessionId, message }) {
+	const baseUrl = process.env.AI_SERVICE_URL;
+	if (!baseUrl) {
+		const err = new Error('Missing AI_SERVICE_URL');
+		err.code = 'AI_CONFIG';
+		throw err;
+	}
+
+	const url = new URL('/chat', baseUrl).toString();
+	const controller = new AbortController();
+	const timeoutMs = 10_000;
+	const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+	try {
+		const resp = await fetch(url, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ user_id: userId, session_id: sessionId, message }),
+			signal: controller.signal,
+		});
+
+		const text = await resp.text();
+		let data;
+		try {
+			data = text ? JSON.parse(text) : null;
+		} catch {
+			data = null;
+		}
+
+		if (!resp.ok) {
+			const err = new Error('AI service error');
+			err.code = 'AI_BAD_STATUS';
+			err.status = resp.status;
+			err.body = data ?? text;
+			throw err;
+		}
+
+		if (!data || typeof data.reply !== 'string') {
+			const err = new Error('Invalid AI response');
+			err.code = 'AI_BAD_RESPONSE';
+			err.body = data ?? text;
+			throw err;
+		}
+
+		return { reply: data.reply, session_id: data.session_id ?? sessionId };
+	} catch (err) {
+		if (err?.name === 'AbortError') {
+			const timeoutErr = new Error('AI service timeout');
+			timeoutErr.code = 'AI_TIMEOUT';
+			throw timeoutErr;
+		}
+		throw err;
+	} finally {
+		clearTimeout(timeoutId);
+	}
+}
+
 app.get('/health', (req, res) => res.json({ ok: true }));
 
 app.post(
@@ -180,8 +237,19 @@ app.post(
 	chatLimiter,
 	validateBody(chatSchema),
 	asyncHandler(async (req, res) => {
-		const { session_id } = req.body;
-		return res.json({ reply: 'stub', session_id });
+		const { session_id, message } = req.body;
+		const userId = req.user.id;
+
+		try {
+			const result = await callAiChat({ userId, sessionId: session_id, message });
+			return res.json({ reply: result.reply, session_id: result.session_id });
+		} catch (err) {
+			console.error('ai_error', {
+				code: err?.code,
+				status: err?.status,
+			});
+			return res.status(502).json({ error: { message: 'AI service unavailable' } });
+		}
 	})
 );
 
