@@ -1,0 +1,34 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+    ports: ["5432:5432"]
+    volumes:
+      - ./db:/docker-entrypoint-initdb.d
+
+  api:
+    build: ./apps/api
+    environment:
+      DATABASE_URL: postgres://app:app@db:5432/app
+      JWT_SECRET: devsecret
+      AI_SERVICE_URL: http://ai:8000
+    ports: ["3001:3001"]
+    depends_on: [db, ai]
+
+  ai:
+    build: ./apps/ai
+    environment:
+      DATABASE_URL: postgres://app:app@db:5432/app
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    ports: ["8000:8000"]
+    depends_on: [db]
+
+  web:
+    build: ./apps/web
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+    ports: ["3000:3000"]
+    depends_on: [api]
