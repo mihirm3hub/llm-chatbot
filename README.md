@@ -30,15 +30,6 @@ The system is split into four services with clear responsibilities:
 - Database (PostgreSQL)
        - Stores users, chat sessions, and appointments
 
-## Architecture
-
-The system is split into four services with clear responsibilities:
-
-- Web UI (Next.js)
-- API (Express)
-- AI Service (FastAPI)
-- Database (PostgreSQL)
-
 Request flow:
 
 ```bash
