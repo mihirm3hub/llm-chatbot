@@ -41,7 +41,7 @@ The system is split into four services with clear responsibilities:
 
 Request flow:
 
-```
+```bash
 
 ┌───────────────┐      HTTP      ┌────────────────┐      HTTP      ┌──────────────────┐
 │  Web (Next.js)│ ──────────────>│  API (Express) │ ─────────────> │  AI (FastAPI)    │
@@ -55,6 +55,9 @@ Request flow:
                                    └────────────────────────────────────────────────┘
 
 ```
+
+---
+
 Service boundaries are intentional:
 - The web app is UI-only.
 - The API owns authentication and acts as a gateway.
@@ -70,7 +73,7 @@ Service boundaries are intentional:
 1) Create a local environment file:
 
 ```bash
-cp .env.example .env
+.env
 ```
 
 2) (Optional) Configure an LLM key.
@@ -104,7 +107,9 @@ These are configured via Docker Compose for local development:
 2) Go to the chat page.
 3) Send a message like:
 
+```
 "Book an appointment next Tuesday at 3pm"
+```
 
 You should receive either a clarification question (if details are missing) or a booking confirmation.
 
