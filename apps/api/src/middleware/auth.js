@@ -58,7 +58,8 @@ export function requireChatOrUserAuth(req, res, next) {
 			if (!tokenSessionId || !tokenUserId) {
 				return res.status(401).json({ error: { message: "Invalid token" } });
 			}
-			if (tokenSessionId !== req.body.session_id) {
+			const requestSessionId = req.body?.session_id;
+			if (!requestSessionId || tokenSessionId !== requestSessionId) {
 				return res.status(401).json({ error: { message: "Invalid token session" } });
 			}
 			req.user = { id: tokenUserId };

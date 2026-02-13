@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 _WEEKDAYS: dict[str, int] = {
@@ -73,9 +73,12 @@ def merge_slots(existing: dict, incoming: dict) -> dict:
 
 
 def parse_timezone(text: str) -> str | None:
-    tz_match = re.search(r"\b([A-Za-z]+/[A-Za-z_]+)\b", text)
-    if tz_match:
-        return tz_match.group(1)
+    # Capture a permissive IANA-like timezone token (supports multi-level zones and symbols like '+'/'-').
+    # We intentionally validate candidates via is_valid_timezone() before returning.
+    for match in re.finditer(r"([^\s,]+/[^\s,]+)", text or ""):
+        candidate = (match.group(1) or "").strip().strip("()[]{}\"'.,;:!?")
+        if candidate and is_valid_timezone(candidate):
+            return candidate
 
     # Lightweight aliases for common user phrasing.
     lowered = (text or "").lower()
@@ -246,9 +249,13 @@ def within_business_rules(start_time_utc: datetime) -> bool:
 def parse_local_start(slots: dict) -> tuple[datetime, str]:
     date_str = slots.get("date")
     time_str = slots.get("time")
-    tz_name = (slots.get("timezone") or "UTC").strip() if isinstance(slots.get("timezone"), str) else "UTC"
+    if not isinstance(date_str, str) or not date_str.strip():
+        raise ValueError("Missing or invalid date slot")
+    if not isinstance(time_str, str) or not time_str.strip():
+        raise ValueError("Missing or invalid time slot")
 
-    tz_name = tz_name or "UTC"
+    tz_raw = slots.get("timezone")
+    tz_name = tz_raw.strip() if isinstance(tz_raw, str) and tz_raw.strip() else "UTC"
     try:
         tzinfo = ZoneInfo(tz_name)
     except Exception:
@@ -268,7 +275,10 @@ def find_alternatives(is_booked_fn, start_time_utc: datetime, tz_name: str, limi
     Returns candidate datetimes in the user's timezone for display.
     """
 
-    tzinfo = ZoneInfo(tz_name)
+    try:
+        tzinfo = ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        tzinfo = ZoneInfo("UTC")
     candidates: list[datetime] = []
     cursor_utc = start_time_utc.astimezone(UTC)
 

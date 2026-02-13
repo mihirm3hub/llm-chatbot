@@ -1,4 +1,8 @@
 import os
+import logging
+
+
+logger = logging.getLogger("ai")
 
 
 def _norm_provider(value: str | None) -> str:
@@ -34,7 +38,7 @@ class Settings:
             or os.environ.get("GOOGLE_API_KEY")
             or ""
         ).strip()
-        self.gemini_model = (os.environ.get("GEMINI_MODEL") or "gemini-2.0-flash").strip()
+        self.gemini_model = (os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash-lite").strip()
 
         # Auto-fallback: if the preferred provider has no key configured,
         # pick the first available provider so the LLM can still respond.
@@ -52,6 +56,25 @@ class Settings:
             self.llm_provider = available[0]
         elif self.llm_provider == "openai" and not self.openai_api_key and available:
             self.llm_provider = available[0]
+
+        # If the preferred provider has no credentials and there is no fallback,
+        # fail fast with a clear message instead of silently keeping an unusable provider.
+        if not available:
+            missing = []
+            if not self.gemini_api_key:
+                missing.append("GEMINI_API_KEY")
+            if not self.moonshot_api_key:
+                missing.append("MOONSHOT_API_KEY/KIMI_API_KEY")
+            if not self.openai_api_key:
+                missing.append("OPENAI_API_KEY")
+            logger.warning(
+                "No LLM provider credentials configured; llm_provider=%s missing=%s",
+                self.llm_provider,
+                ",".join(missing),
+            )
+            raise RuntimeError(
+                "No LLM provider credentials configured. Set one of GEMINI_API_KEY, MOONSHOT_API_KEY/KIMI_API_KEY, OPENAI_API_KEY."
+            )
 
 
 settings = Settings()

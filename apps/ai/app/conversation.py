@@ -242,6 +242,7 @@ def handle_chat(
             )
         out_messages.append({"role": "assistant", "content": reply, "ts": _utc_iso_now()})
         out_metadata = _set_slots(metadata, merged)
+        out_metadata = _set_state(out_metadata, prior_state)
         return reply, out_messages, out_metadata, None, extracted_slots
 
     if _is_cancel(message):
@@ -319,9 +320,11 @@ def handle_chat(
         out_metadata = _set_state(out_metadata, "COLLECTING")
         return reply, out_messages, out_metadata, None, extracted_slots
 
-    if db.is_already_booked(connection, start_utc):
+    end_utc = start_utc + timedelta(hours=1)
+
+    if db.is_already_booked(connection, start_utc, end_utc):
         alternatives = booking.find_alternatives(
-            lambda dt_utc: db.is_already_booked(connection, dt_utc),
+            lambda dt_utc: db.is_already_booked(connection, dt_utc, dt_utc + timedelta(hours=1)),
             start_utc,
             tz_name,
             limit=2,
@@ -348,14 +351,16 @@ def handle_chat(
         out_metadata = _set_state(out_metadata, "COLLECTING")
         return reply, out_messages, out_metadata, None, extracted_slots
 
-    end_utc = start_utc + timedelta(hours=1)
     service_type = (merged.get("service_type") or "general").strip() or "general"
 
-    # If rescheduling, cancel the latest booked appointment first (best-effort).
     if reschedule_mode:
-        db.cancel_latest_booked_appointment(connection, user_id)
-
-    appointment_id = db.create_appointment(connection, user_id, start_utc, end_utc, service_type)
+        # Reschedule must be atomic to avoid lost/duplicate appointments.
+        # Use a single DB transaction for cancel + create.
+        with connection:
+            db.cancel_latest_booked_appointment(connection, user_id, commit=False)
+            appointment_id = db.create_appointment(connection, user_id, start_utc, end_utc, service_type, commit=False)
+    else:
+        appointment_id = db.create_appointment(connection, user_id, start_utc, end_utc, service_type)
     merged["appointment_id"] = str(appointment_id)
 
     fallback = f"Booked — {local_dt.strftime('%Y-%m-%d %H:%M')} {tz_name} (type: {service_type})."

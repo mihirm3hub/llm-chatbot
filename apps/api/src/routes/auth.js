@@ -17,13 +17,18 @@ const loginSchema = z.object({
 	password: z.string().min(1).max(200),
 });
 
+function normalizeEmail(value) {
+	return (value || "").trim().toLowerCase();
+}
+
 export const authRouter = express.Router();
 
 authRouter.post(
 	"/signup",
 	validateBody(signupSchema),
 	asyncHandler(async (req, res) => {
-		const { email, password } = req.body;
+		const email = normalizeEmail(req.body?.email);
+		const password = req.body?.password;
 		const passwordHash = await bcrypt.hash(password, 10);
 
 		try {
@@ -48,7 +53,8 @@ authRouter.post(
 	"/login",
 	validateBody(loginSchema),
 	asyncHandler(async (req, res) => {
-		const { email, password } = req.body;
+		const email = normalizeEmail(req.body?.email);
+		const password = req.body?.password;
 		const result = await pool.query("SELECT id, password_hash FROM users WHERE email = $1", [email]);
 		const row = result.rows[0];
 		if (!row) {

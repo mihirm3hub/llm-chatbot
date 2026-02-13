@@ -2,6 +2,8 @@ import cors from "cors";
 import express from "express";
 import morgan from "morgan";
 
+import { CORS_ORIGIN } from "./config.js";
+
 import { authRouter } from "./routes/auth.js";
 import { chatRouter } from "./routes/chat.js";
 import { errorHandler } from "./middleware/errorHandler.js";
@@ -15,7 +17,7 @@ export function createApp() {
 	app.use(express.json({ limit: "1mb" }));
 	app.use(
 		cors({
-			origin: "http://localhost:3000",
+			origin: CORS_ORIGIN,
 			credentials: true,
 			allowedHeaders: ["Content-Type", "Authorization", "X-Request-Id"],
 			methods: ["GET", "POST", "OPTIONS"],

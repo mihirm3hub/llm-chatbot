@@ -1,4 +1,5 @@
 import logging
+import time
 import uuid
 
 from fastapi import FastAPI, HTTPException
@@ -46,7 +47,17 @@ def chat(payload: ChatRequest):
             metadata=session.get("metadata") or {},
         )
 
-        db.save_session(connection, payload.session_id, messages, metadata)
+        # Persistence is best-effort: if saving fails, still return the successful reply.
+        # We retry briefly to handle transient DB issues.
+        for attempt in range(3):
+            try:
+                db.save_session(connection, payload.session_id, messages, metadata)
+                break
+            except Exception as exc:
+                logger.exception("save_session_failed attempt=%s session_id=%s", attempt + 1, str(payload.session_id))
+                if attempt == 2:
+                    break
+                time.sleep(0.1)
 
         logger.info("chat user_id=%s session_id=%s", str(payload.user_id), str(payload.session_id))
 

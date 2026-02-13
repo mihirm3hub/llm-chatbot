@@ -35,8 +35,8 @@ export const chatRouter = express.Router();
 
 chatRouter.post(
 	"/chatbot/token",
-	requireAuth,
 	chatTokenLimiter,
+	requireAuth,
 	validateBody(chatbotTokenSchema),
 	asyncHandler(async (req, res) => {
 		const { session_id } = req.body;
