@@ -31,6 +31,12 @@ CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_appt_user_time ON appointments(user_id, start_time);
 CREATE INDEX IF NOT EXISTS idx_appt_start_time ON appointments(start_time);
 
+-- Prevent double-booking the exact same start_time.
+-- Business rules enforce hourly slots on the hour, so start_time uniqueness is sufficient.
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_appt_booked_start_time
+  ON appointments(start_time)
+  WHERE status = 'BOOKED';
+
 -- Recent sessions lookup (most recent first)
 CREATE INDEX IF NOT EXISTS idx_sessions_user_updated_at ON chat_sessions(user_id, updated_at DESC);
 

@@ -321,8 +321,28 @@ def handle_chat(
         return reply, out_messages, out_metadata, None, extracted_slots
 
     end_utc = start_utc + timedelta(hours=1)
+    service_type = (merged.get("service_type") or "general").strip() or "general"
 
-    if db.is_already_booked(connection, start_utc, end_utc):
+    try:
+        # NOTE: psycopg2 connection context commits on success and rolls back on exception.
+        # We pass commit=False to defer commit until context exit for true atomicity.
+        with connection:
+            # Perform availability check inside the transaction and lock any conflicting row.
+            if db.is_already_booked(connection, start_utc, end_utc, lock=True):
+                raise db.AlreadyBookedError("Appointment slot already booked")
+
+            if reschedule_mode:
+                db.cancel_latest_booked_appointment(connection, user_id, commit=False)
+
+            appointment_id = db.create_appointment(
+                connection,
+                user_id,
+                start_utc,
+                end_utc,
+                service_type,
+                commit=False,
+            )
+    except db.AlreadyBookedError:
         alternatives = booking.find_alternatives(
             lambda dt_utc: db.is_already_booked(connection, dt_utc, dt_utc + timedelta(hours=1)),
             start_utc,
@@ -350,17 +370,6 @@ def handle_chat(
         out_metadata = _set_slots(metadata, merged)
         out_metadata = _set_state(out_metadata, "COLLECTING")
         return reply, out_messages, out_metadata, None, extracted_slots
-
-    service_type = (merged.get("service_type") or "general").strip() or "general"
-
-    if reschedule_mode:
-        # Reschedule must be atomic to avoid lost/duplicate appointments.
-        # Use a single DB transaction for cancel + create.
-        with connection:
-            db.cancel_latest_booked_appointment(connection, user_id, commit=False)
-            appointment_id = db.create_appointment(connection, user_id, start_utc, end_utc, service_type, commit=False)
-    else:
-        appointment_id = db.create_appointment(connection, user_id, start_utc, end_utc, service_type)
     merged["appointment_id"] = str(appointment_id)
 
     fallback = f"Booked — {local_dt.strftime('%Y-%m-%d %H:%M')} {tz_name} (type: {service_type})."

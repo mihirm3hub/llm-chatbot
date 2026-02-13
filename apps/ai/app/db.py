@@ -11,6 +11,10 @@ class SessionNotFoundError(RuntimeError):
     pass
 
 
+class AlreadyBookedError(RuntimeError):
+    pass
+
+
 def conn():
     if not settings.database_url:
         raise RuntimeError("Missing DATABASE_URL")
@@ -88,33 +92,40 @@ def create_appointment(
     commit: bool = True,
 ) -> uuid.UUID:
     with connection.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO appointments (user_id, start_time, end_time, service_type, status)
-            VALUES (%s, %s, %s, %s, 'BOOKED')
-            RETURNING id
-            """,
-            (str(user_id), start_time_utc, end_time_utc, service_type),
-        )
-        appointment_id = cur.fetchone()[0]
+        try:
+            cur.execute(
+                """
+                INSERT INTO appointments (user_id, start_time, end_time, service_type, status)
+                VALUES (%s, %s, %s, %s, 'BOOKED')
+                RETURNING id
+                """,
+                (str(user_id), start_time_utc, end_time_utc, service_type),
+            )
+            appointment_id = cur.fetchone()[0]
+        except psycopg2.IntegrityError as exc:
+            # Most commonly a unique constraint/index violation for an already-booked slot.
+            if getattr(exc, "pgcode", None) == "23505":
+                raise AlreadyBookedError("Appointment slot already booked") from exc
+            raise
     if commit:
         connection.commit()
     return uuid.UUID(str(appointment_id))
 
 
-def is_already_booked(connection, start_time_utc: datetime, end_time_utc: datetime) -> bool:
+def is_already_booked(connection, start_time_utc: datetime, end_time_utc: datetime, *, lock: bool = False) -> bool:
     with connection.cursor() as cur:
-        cur.execute(
-            """
-            SELECT 1
-            FROM appointments
-            WHERE status = 'BOOKED'
-              AND start_time < %s
-              AND COALESCE(end_time, start_time + interval '1 hour') > %s
-            LIMIT 1
-            """,
-            (end_time_utc, start_time_utc),
-        )
+        query = """
+        SELECT id
+        FROM appointments
+        WHERE status = 'BOOKED'
+          AND start_time < %s
+          AND COALESCE(end_time, start_time + interval '1 hour') > %s
+        LIMIT 1
+        """
+        if lock:
+            query += " FOR UPDATE"
+
+        cur.execute(query, (end_time_utc, start_time_utc))
         return cur.fetchone() is not None
 
 
