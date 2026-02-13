@@ -20,6 +20,11 @@ class Settings:
     def __init__(self) -> None:
         self.database_url = os.environ.get("DATABASE_URL")
 
+        # If true, fail the request when session persistence fails.
+        self.require_session_persistence = (
+            (os.environ.get("REQUIRE_SESSION_PERSISTENCE") or "").strip().lower() in {"1", "true", "yes"}
+        )
+
         # Preferred provider (may be auto-fallback if its key is missing).
         self.llm_provider = _norm_provider(os.environ.get("LLM_PROVIDER") or "gemini")
 

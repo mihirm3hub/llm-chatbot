@@ -26,6 +26,16 @@ class ChatResponse(BaseModel):
     session_id: uuid.UUID
     appointment_id: uuid.UUID | None = None
     extracted_slots: dict | None = None
+    persisted: bool = True
+
+
+def _emit_persistence_alert(*, session_id: uuid.UUID, error: Exception) -> None:
+    # Minimal metric/alert hook. Replace with real telemetry if available.
+    logger.error(
+        "metric=session_persist_failed session_id=%s error=%s",
+        str(session_id),
+        repr(error),
+    )
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -47,17 +57,29 @@ def chat(payload: ChatRequest):
             metadata=session.get("metadata") or {},
         )
 
-        # Persistence is best-effort: if saving fails, still return the successful reply.
-        # We retry briefly to handle transient DB issues.
+        # Persistence is best-effort by default: if saving fails, still return the successful reply.
+        # Retries use exponential backoff to reduce load during transient failures.
+        persisted = True
+        last_exc: Exception | None = None
         for attempt in range(3):
             try:
                 db.save_session(connection, payload.session_id, messages, metadata)
+                last_exc = None
                 break
             except Exception as exc:
-                logger.exception("save_session_failed attempt=%s session_id=%s", attempt + 1, str(payload.session_id))
-                if attempt == 2:
-                    break
-                time.sleep(0.1)
+                last_exc = exc
+                logger.exception(
+                    "save_session_failed attempt=%s session_id=%s",
+                    attempt + 1,
+                    str(payload.session_id),
+                )
+                time.sleep(0.1 * (2**attempt))
+
+        if last_exc is not None:
+            persisted = False
+            _emit_persistence_alert(session_id=payload.session_id, error=last_exc)
+            if getattr(settings, "require_session_persistence", False):
+                raise HTTPException(status_code=500, detail="Session persistence failed") from last_exc
 
         logger.info("chat user_id=%s session_id=%s", str(payload.user_id), str(payload.session_id))
 
@@ -66,6 +88,7 @@ def chat(payload: ChatRequest):
             session_id=payload.session_id,
             appointment_id=appointment_id,
             extracted_slots=extracted_slots,
+            persisted=persisted,
         )
     except HTTPException:
         raise

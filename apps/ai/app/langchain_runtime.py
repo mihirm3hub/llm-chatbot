@@ -1,5 +1,4 @@
 import json
-import os
 from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -37,7 +36,7 @@ def get_chat_model(*, temperature: float = 0) -> BaseChatModel:
         model = settings.kimi_model
         base_url = settings.kimi_base_url
         # LangChain+OpenAI SDK supports base_url param in recent versions.
-        # If an older version is in play, set the client-level base via legacy param or env.
+        # If an older version is in play, try the legacy client-level param.
         try:
             return ChatOpenAI(
                 model=model,
@@ -53,13 +52,12 @@ def get_chat_model(*, temperature: float = 0) -> BaseChatModel:
                     openai_api_base=base_url,
                     temperature=max(0, float(temperature)),
                 )
-            except TypeError:
-                os.environ["OPENAI_API_BASE"] = base_url
-                return ChatOpenAI(
-                    model=model,
-                    api_key=api_key,
-                    temperature=max(0, float(temperature)),
-                )
+            except TypeError as exc:
+                raise RuntimeError(
+                    "Your installed langchain-openai ChatOpenAI does not support routing to a custom endpoint via "
+                    "'base_url' or legacy 'openai_api_base'. Upgrade langchain-openai/openai to a version that "
+                    "supports custom base URLs, or pin a compatible version."
+                ) from exc
 
     if provider != "openai":
         raise ValueError(f"Unsupported llm_provider={settings.llm_provider}")
