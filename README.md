@@ -1,4 +1,5 @@
-# TeraLeads Appointment Chatbot
+# Full-Stack LLM chatbot (Next.js, Node.js, FastAPI, PostgreSQL, LLM)
+
 
 This repository contains a small prototype that lets a user book an appointment through a chat interface.
 
