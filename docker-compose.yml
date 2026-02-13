@@ -22,7 +22,18 @@ services:
     build: ./apps/ai
     environment:
       DATABASE_URL: postgres://app:app@db:5432/app
+      # LLM selection (default: kimi via Moonshot OpenAI-compatible API)
+      LLM_PROVIDER: ${LLM_PROVIDER}
+      # Kimi / Moonshot (OpenAI-compatible)
+      MOONSHOT_API_KEY: ${MOONSHOT_API_KEY}
+      KIMI_MODEL: ${KIMI_MODEL}
+      KIMI_BASE_URL: ${KIMI_BASE_URL}
+      # OpenAI (optional fallback)
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL}
+      # Gemini (optional)
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL}
     ports: ["8000:8000"]
     depends_on: [db]
 

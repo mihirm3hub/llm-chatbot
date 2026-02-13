@@ -1,154 +1,162 @@
-# TeraLeads Appointment Chatbot (Take-Home Prototype)
+# TeraLeads Appointment Chatbot
 
-Minimal end-to-end appointment booking chatbot with clean service boundaries.
+This repository contains a small prototype that lets a user book an appointment through a chat interface.
+
+The user can:
+- Create an account and sign in
+- Open a chat session
+- Request an appointment (date and time)
+- Receive confirmation when the appointment is booked
 
 ## Architecture
 
-```text
-┌───────────────┐        JWT (user)        ┌────────────────────┐
-│  Web (Next.js)│ ───────────────────────▶ │  API (Express)     │
-│  :3000        │                          │  :3001             │
-└──────┬────────┘                          └─────────┬──────────┘
-       │                                             │
-       │                                             │ forwards chat (later)
-       │ short-lived chat token (scope=chat)         ▼
-       │                                     ┌────────────────────┐
-       └───────────────────────────────────▶ │  AI (FastAPI)       │
-                                             │  :8000              │
-                                             └─────────┬──────────┘
-                                                       │
-                                                       ▼
-                                             ┌────────────────────┐
-                                             │  Postgres           │
-                                             │  :5432              │
-                                             └────────────────────┘
+The system is split into four services with clear responsibilities:
+
+- Web UI (Next.js)
+       - Pages for signup, login, and chat
+       - Stores the user token in the browser for this prototype
+       - Sends chat messages to the API
+
+- API (Express)
+       - User authentication (JWT)
+       - Issues a short-lived chat token
+       - Validates requests, applies basic rate limits, and forwards chat to the AI service
+
+- AI service (FastAPI)
+       - Manages the multi-turn conversation
+       - Extracts booking details from user messages
+       - Applies deterministic booking rules and writes to the database
+
+- Database (PostgreSQL)
+       - Stores users, chat sessions, and appointments
+
+## Architecture
+
+The system is split into four services with clear responsibilities:
+
+- Web UI (Next.js)
+- API (Express)
+- AI Service (FastAPI)
+- Database (PostgreSQL)
+
+Request flow:
+
 ```
 
-Services are started via Docker Compose:
-- `web`: Next.js App Router UI
-- `api`: Node.js + Express (auth, tokens, chat gateway)
-- `ai`: Python + FastAPI + LangChain (multi-turn booking)
-- `db`: Postgres (users, appointments, chat_sessions)
+┌───────────────┐      HTTP      ┌────────────────┐      HTTP      ┌──────────────────┐
+│  Web (Next.js)│ ──────────────>│  API (Express) │ ─────────────> │  AI (FastAPI)    │
+│  :3000        │                │  :3001         │                │  :8000           │
+└──────┬────────┘                └───────┬────────┘                └─────────┬────────┘
+       │                                 │                                   │
+       │                                 │ SQL                               │ SQL
+       │                                 ▼                                   ▼
+       │                           ┌────────────────────────────────────────────────┐
+       └─────────────────────────> │               Postgres (:5432)                 │
+                                   └────────────────────────────────────────────────┘
 
-## Local setup (Docker)
+```
+Service boundaries are intentional:
+- The web app is UI-only.
+- The API owns authentication and acts as a gateway.
+- The AI service owns conversation state and booking behavior.
+- The database is the single source of truth.
 
-1) Create `.env` from the example and add your key:
+## How to run locally
+
+### Prerequisites
+- Docker Desktop
+
+### Steps
+1) Create a local environment file:
 
 ```bash
 cp .env.example .env
 ```
 
-Set `OPENAI_API_KEY` in `.env`.
+2) (Optional) Configure an LLM key.
 
-2) Start everything:
+The AI service can run with deterministic parsing only, but an LLM key improves understanding of user input.
+
+3) Start the stack:
 
 ```bash
 docker compose up --build
 ```
 
-3) Open:
-- Web UI: `http://localhost:3000`
-- API: `http://localhost:3001`
-- AI: `http://localhost:8000`
+4) Open the app:
+- Web UI: http://localhost:3000
 
-## Environment variables
+### Environment variables
 
-Docker Compose wires most config internally. The only required local variable is:
-- `OPENAI_API_KEY` (used by the AI service)
+Docker Compose provides internal service URLs. The main values you may set locally are:
 
-The API service also uses:
-- `JWT_SECRET` (set in `docker-compose.yml` as a dev value)
+- `GEMINI_API_KEY` (optional): enables Gemini-based understanding and response composition in the AI service
 
-## API contracts
+These are configured via Docker Compose for local development:
 
-Base URL (local): `http://localhost:3001`
+- `JWT_SECRET`: used by the API to sign tokens
+- `DATABASE_URL`: used by the API and AI service to connect to Postgres
+- `AI_SERVICE_URL`: used by the API to call the AI service
 
-### Auth
+### End-to-end test
 
-`POST /api/auth/signup`
+1) Sign up in the web UI.
+2) Go to the chat page.
+3) Send a message like:
 
-Request:
-```json
-{ "email": "user@example.com", "password": "password123" }
-```
+"Book an appointment next Tuesday at 3pm"
 
-Response:
-```json
-{ "jwt": "<user_jwt>" }
-```
+You should receive either a clarification question (if details are missing) or a booking confirmation.
 
-`POST /api/auth/login`
+## Core workflow
 
-Request:
-```json
-{ "email": "user@example.com", "password": "password123" }
-```
+The booking flow is:
+1) The user requests an appointment in chat.
+2) The AI service extracts the date and time from the message.
+3) If information is missing, the assistant asks for one missing detail at a time.
+4) When enough details are present, the AI service checks availability (simulated).
+5) If available, it creates an appointment record and confirms the booking.
+6) The conversation history is stored in the database so the session can continue across requests.
 
-Response:
-```json
-{ "jwt": "<user_jwt>" }
-```
+Multi-turn conversations work by storing messages and per-session state in Postgres. Each new chat message loads the prior session data and continues from there.
 
-### Chatbot token
+## Design decisions and tradeoffs
 
-`POST /api/chatbot/token`
+Why separate services:
+- It keeps responsibilities clear and easier to test.
+- The web app stays simple.
+- The API has a single job: auth and safe forwarding.
+- The AI service can evolve without touching the API or UI.
 
-Headers: `Authorization: Bearer <user_jwt>`
+Why deterministic booking logic:
+- Scheduling rules should be consistent and testable.
+- The model is used to understand user text and to phrase responses, but booking decisions are enforced in code.
 
-Request:
-```json
-{ "session_id": "<uuid>" }
-```
+Why localStorage for auth in this prototype:
+- It is simple for a take-home prototype.
+- In production this would move to httpOnly cookies, CSRF protection, and tighter session controls.
 
-Response:
-```json
-{ "chat_token": "<chat_jwt>", "expires_in_seconds": 300 }
-```
-
-The chat token is short-lived and scoped to `{ user_id, session_id }`.
-
-### Chat (stub)
-
-`POST /api/chat`
-
-Headers: `Authorization: Bearer <user_jwt>`
-
-Request:
-```json
-{ "session_id": "<uuid>", "message": "hello" }
-```
-
-Response:
-```json
-{ "reply": "stub", "session_id": "<uuid>" }
-```
-
-## Data model
-
-Postgres schema is in `db/schema.sql` and includes:
-- `users` (UUID pk, unique email)
-- `appointments` (UUID pk, fk to users, `timestamptz` start/end, status)
-- `chat_sessions` (UUID pk, fk to users, `messages`/`metadata` as JSONB)
-
-## Design decisions
-
-- No ORM: direct `pg` queries for clarity.
-- JWT auth for API endpoints; short-lived chat token for future AI gateway.
-- Zod request validation on JSON bodies.
-- Centralized error handling with safe JSON responses.
-- Rate limiting on chat-related endpoints only.
-- CORS restricted to `http://localhost:3000`.
+Why availability is simulated:
+- The goal is to demonstrate flow and persistence without relying on external calendar systems.
 
 ## Assumptions
 
-- App runs locally via Docker Compose.
-- Timezone defaults and booking workflow behavior follow `SPEC.md`.
+- Business hours are Monday to Friday, 09:00–17:00 UTC.
+- Appointments are 1-hour slots.
+- If a timezone is not provided, times are treated as UTC.
+- One active booking flow is tracked per chat session.
 
 ## Known limitations
 
-- `POST /api/chat` currently returns a stub reply and does not forward to the AI service yet.
-- No production hardening (e.g., cookie-based auth, CSRF protection, structured logging, migrations).
+- No real calendar integration (Google Calendar / Outlook).
+- No real-time sockets; the UI uses request/response calls.
+- Natural language handling is limited for vague phrases (for example, "sometime next week").
+- No production deployment or scaling setup.
 
-## Reference
+## Optional demo
 
-See `SPEC.md` for product requirements and acceptance criteria.
+If you want to provide a demo, record a short screen capture showing:
+1) Signup and login
+2) Starting a chat session
+3) Booking an appointment end-to-end
+4) A follow-up message in the same session to show multi-turn behavior
